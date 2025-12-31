@@ -1,7 +1,6 @@
 [package]
 name = "singletons"
 version = "0.1.0"
-authors = ["Jon Musselwhite"]
 categories = ["data-structures"]
 description = "Type-keyed data structures: SingletonSet stores one instance per type, SingletonMap<V> maps types to values"
 keywords = ["singleton", "data", "structure", "set", "map"]
