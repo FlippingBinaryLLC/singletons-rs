@@ -199,6 +199,14 @@ impl<V> SingletonMap<V> {
         self.0.contains_key(&Type::of::<K>())
     }
 
+    /// Returns the [`Type`] for a given full type name, if present as a key.
+    ///
+    /// Type names are not guaranteed to be unique or stable across builds.
+    #[must_use]
+    pub fn get_type_by_name(&self, type_name: &str) -> Option<&Type> {
+        self.0.keys().find(|t| t.as_str() == type_name)
+    }
+
     /// Returns an iterator visiting all type keys in insertion order.
     #[must_use]
     pub fn keys(&self) -> Keys<'_, V> {

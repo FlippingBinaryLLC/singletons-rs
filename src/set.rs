@@ -152,6 +152,14 @@ impl SingletonSet {
         self.0.contains_key(t)
     }
 
+    /// Returns the [`Type`] for a given full type name, if present.
+    ///
+    /// Type names are not guaranteed to be unique or stable across builds.
+    #[must_use]
+    pub fn get_type_by_name(&self, type_name: &str) -> Option<&Type> {
+        self.0.keys().find(|t| t.as_str() == type_name)
+    }
+
     /// Calls a closure with some value of the corresponding type's
     /// slot, returning the closure's return value.
     ///
