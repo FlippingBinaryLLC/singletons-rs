@@ -243,6 +243,22 @@ impl<V> SingletonMap<V> {
         IterMut(self.0.iter_mut())
     }
 
+    /// Returns a mutable reference to the value for type key `K`, inserting
+    /// the result of the provided function if the key is not present.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use singletons::SingletonMap;
+    ///
+    /// let mut map: SingletonMap<String> = SingletonMap::new();
+    /// let value = map.get_or_insert_with::<u8>(|| "computed".to_string());
+    /// assert_eq!(value, &"computed".to_string());
+    /// ```
+    pub fn get_or_insert_with<K: 'static>(&mut self, f: impl FnOnce() -> V) -> &mut V {
+        self.0.entry(Type::of::<K>()).or_insert_with(f)
+    }
+
     /// Gets the given type key's corresponding entry in the map for in-place manipulation.
     ///
     /// # Examples
