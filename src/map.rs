@@ -335,6 +335,8 @@ impl<'a, V> DoubleEndedIterator for Keys<'a, V> {
     }
 }
 
+impl<'a, V> std::iter::FusedIterator for Keys<'a, V> {}
+
 /// An iterator over the values of a `SingletonMap`.
 #[derive(Clone)]
 pub struct Values<'a, V>(indexmap::map::Values<'a, Type, V>);
@@ -363,6 +365,8 @@ impl<'a, V> DoubleEndedIterator for Values<'a, V> {
     }
 }
 
+impl<'a, V> std::iter::FusedIterator for Values<'a, V> {}
+
 /// A mutable iterator over the values of a `SingletonMap`.
 pub struct ValuesMut<'a, V>(indexmap::map::ValuesMut<'a, Type, V>);
 
@@ -389,6 +393,8 @@ impl<'a, V> DoubleEndedIterator for ValuesMut<'a, V> {
         self.0.next_back()
     }
 }
+
+impl<'a, V> std::iter::FusedIterator for ValuesMut<'a, V> {}
 
 /// An iterator over the key-value pairs of a `SingletonMap`.
 #[derive(Clone)]
@@ -418,6 +424,8 @@ impl<'a, V> DoubleEndedIterator for Iter<'a, V> {
     }
 }
 
+impl<'a, V> std::iter::FusedIterator for Iter<'a, V> {}
+
 /// A mutable iterator over the key-value pairs of a `SingletonMap`.
 pub struct IterMut<'a, V>(indexmap::map::IterMut<'a, Type, V>);
 
@@ -444,6 +452,84 @@ impl<'a, V> DoubleEndedIterator for IterMut<'a, V> {
         self.0.next_back()
     }
 }
+
+impl<'a, V> std::iter::FusedIterator for IterMut<'a, V> {}
+
+/// An owning iterator over the key-value pairs of a `SingletonMap`.
+pub struct IntoIter<V>(indexmap::map::IntoIter<Type, V>);
+
+impl<V> Iterator for IntoIter<V> {
+    type Item = (Type, V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+}
+
+impl<V> ExactSizeIterator for IntoIter<V> {
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+impl<V> DoubleEndedIterator for IntoIter<V> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.0.next_back()
+    }
+}
+
+impl<V> std::iter::FusedIterator for IntoIter<V> {}
+
+impl<V> IntoIterator for SingletonMap<V> {
+    type Item = (Type, V);
+    type IntoIter = IntoIter<V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        IntoIter(self.0.into_iter())
+    }
+}
+
+impl<'a, V> IntoIterator for &'a SingletonMap<V> {
+    type Item = (&'a Type, &'a V);
+    type IntoIter = Iter<'a, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<'a, V> IntoIterator for &'a mut SingletonMap<V> {
+    type Item = (&'a Type, &'a mut V);
+    type IntoIter = IterMut<'a, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
+    }
+}
+
+impl<V> Extend<(Type, V)> for SingletonMap<V> {
+    fn extend<I: IntoIterator<Item = (Type, V)>>(&mut self, iter: I) {
+        self.0.extend(iter)
+    }
+}
+
+impl<V> std::iter::FromIterator<(Type, V)> for SingletonMap<V> {
+    fn from_iter<I: IntoIterator<Item = (Type, V)>>(iter: I) -> Self {
+        SingletonMap(IndexMap::from_iter(iter))
+    }
+}
+
+impl<V: PartialEq> PartialEq for SingletonMap<V> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl<V: Eq> Eq for SingletonMap<V> {}
 
 /// A view into a single entry in a map, which may either be vacant or occupied.
 pub struct Entry<'a, V> {
@@ -602,5 +688,57 @@ mod tests {
 
         let cloned = map.clone();
         assert_eq!(cloned.get::<u8>(), Some(&"value".to_string()));
+    }
+
+    #[test]
+    fn test_singletonmap_extend() {
+        let mut map = SingletonMap::new();
+        map.insert::<u8>("eight".to_string());
+
+        let mut other = SingletonMap::new();
+        other.insert::<u16>("sixteen".to_string());
+        other.insert::<u32>("thirty-two".to_string());
+
+        map.extend(other);
+        assert_eq!(map.len(), 3);
+        assert_eq!(map.get::<u8>(), Some(&"eight".to_string()));
+        assert_eq!(map.get::<u16>(), Some(&"sixteen".to_string()));
+        assert_eq!(map.get::<u32>(), Some(&"thirty-two".to_string()));
+    }
+
+    #[test]
+    fn test_singletonmap_from_iterator() {
+        let mut source = SingletonMap::new();
+        source.insert::<u8>("eight".to_string());
+        source.insert::<u16>("sixteen".to_string());
+
+        let map: SingletonMap<String> = source.into_iter().collect();
+        assert_eq!(map.len(), 2);
+    }
+
+    #[test]
+    fn test_singletonmap_equality() {
+        let mut map1 = SingletonMap::new();
+        map1.insert::<u8>("eight".to_string());
+        map1.insert::<u16>("sixteen".to_string());
+
+        let mut map2 = SingletonMap::new();
+        map2.insert::<u8>("eight".to_string());
+        map2.insert::<u16>("sixteen".to_string());
+
+        let mut map3 = SingletonMap::new();
+        map3.insert::<u8>("different".to_string());
+        map3.insert::<u16>("sixteen".to_string());
+
+        let mut map4 = SingletonMap::new();
+        map4.insert::<u8>("eight".to_string());
+
+        assert_eq!(map1, map2);
+        assert_ne!(map1, map3);
+        assert_ne!(map1, map4);
+
+        let empty1: SingletonMap<String> = SingletonMap::new();
+        let empty2: SingletonMap<String> = SingletonMap::new();
+        assert_eq!(empty1, empty2);
     }
 }

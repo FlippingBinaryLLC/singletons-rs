@@ -569,6 +569,55 @@ impl<'a> DoubleEndedIterator for Types<'a> {
     }
 }
 
+impl<'a> std::iter::FusedIterator for Types<'a> {}
+
+/// An owning iterator over the [`Type`]s in a [`SingletonSet`].
+pub struct IntoTypes(indexmap::map::IntoKeys<Type, Box<dyn Any>>);
+
+impl Iterator for IntoTypes {
+    type Item = Type;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+}
+
+impl ExactSizeIterator for IntoTypes {
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+impl DoubleEndedIterator for IntoTypes {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.0.next_back()
+    }
+}
+
+impl std::iter::FusedIterator for IntoTypes {}
+
+impl IntoIterator for SingletonSet {
+    type Item = Type;
+    type IntoIter = IntoTypes;
+
+    fn into_iter(self) -> Self::IntoIter {
+        IntoTypes(self.0.into_keys())
+    }
+}
+
+impl<'a> IntoIterator for &'a SingletonSet {
+    type Item = &'a Type;
+    type IntoIter = Types<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.types()
+    }
+}
+
 /// A view into a single entry in a [`SingletonSet`], which may either be vacant or occupied.
 pub struct SetEntry<'a, T> {
     inner: indexmap::map::Entry<'a, Type, Box<dyn Any>>,
