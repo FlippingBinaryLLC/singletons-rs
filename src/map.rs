@@ -199,6 +199,14 @@ impl<V> SingletonMap<V> {
         self.0.contains_key(&Type::of::<K>())
     }
 
+    /// Returns true if any type with the given full type name is a key in the map.
+    ///
+    /// Type names are not guaranteed to be unique or stable across builds.
+    #[must_use]
+    pub fn contains_type_name(&self, type_name: &str) -> bool {
+        self.0.keys().any(|t| t.as_str() == type_name)
+    }
+
     /// Returns the [`Type`] for a given full type name, if present as a key.
     ///
     /// Type names are not guaranteed to be unique or stable across builds.
