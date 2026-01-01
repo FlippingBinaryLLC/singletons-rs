@@ -26,6 +26,7 @@ pub struct Type(TypeId, &'static str);
 
 impl Type {
     /// Creates a new `Type`
+    #[must_use]
     pub fn of<T>() -> Self
     where
         T: 'static,
@@ -35,12 +36,14 @@ impl Type {
 
     /// Returns a [`TypeId`] representing the type uniquely among all other
     /// types available to the compiler.
+    #[must_use]
     pub fn as_id(&self) -> &TypeId {
         &self.0
     }
 
     /// Returns a [`TypeId`] representing the type uniquely among all other
     /// types available to the compiler.
+    #[must_use]
     pub fn to_id(&self) -> TypeId {
         self.0
     }
@@ -49,6 +52,7 @@ impl Type {
     ///
     /// Type names are not unique, and there may be multiple type names that
     /// all refer to the same type.
+    #[must_use]
     pub fn as_str(&self) -> &str {
         self.1
     }
@@ -62,6 +66,7 @@ impl Type {
     ///
     /// The short type name is not guaranteed to be consistent across
     /// multiple builds, or unique among available types.
+    #[must_use]
     pub fn as_name(&self) -> &str {
         let to_index = self.1.find('<').unwrap_or(self.1.len());
 
@@ -74,6 +79,7 @@ impl Type {
     ///
     /// The short type name is not guaranteed to be consistent across
     /// multiple builds, or unique among available types.
+    #[must_use]
     pub fn to_name(&self) -> String {
         self.as_name().to_string()
     }
