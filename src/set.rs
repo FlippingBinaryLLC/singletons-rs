@@ -190,6 +190,28 @@ impl SingletonSet {
             .and_then(|boxed| boxed.downcast().ok().map(|boxed| *boxed))
     }
 
+    /// Gets the given type's corresponding entry in the set for in-place manipulation.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use singletons::SingletonSet;
+    ///
+    /// let mut set = SingletonSet::new();
+    /// set.entry::<String>().or_insert_with(|| "hello".to_string());
+    /// assert_eq!(set.get::<String>(), &"hello".to_string());
+    ///
+    /// set.entry::<String>()
+    ///     .and_modify(|s| s.push_str(" world"));
+    /// assert_eq!(set.get::<String>(), &"hello world".to_string());
+    /// ```
+    pub fn entry<T: 'static>(&mut self) -> SetEntry<'_, T> {
+        SetEntry {
+            inner: self.0.entry(Type::of::<T>()),
+            _marker: std::marker::PhantomData,
+        }
+    }
+
     /// Calls a closure with some value of the corresponding type's
     /// slot, returning the closure's return value.
     ///
@@ -544,6 +566,53 @@ impl<'a> ExactSizeIterator for Types<'a> {
 impl<'a> DoubleEndedIterator for Types<'a> {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.0.next_back()
+    }
+}
+
+/// A view into a single entry in a [`SingletonSet`], which may either be vacant or occupied.
+pub struct SetEntry<'a, T> {
+    inner: indexmap::map::Entry<'a, Type, Box<dyn Any>>,
+    _marker: std::marker::PhantomData<T>,
+}
+
+impl<'a, T: 'static> SetEntry<'a, T> {
+    /// Ensures a value is in the entry by inserting the default if empty,
+    /// and returns a mutable reference to the value in the entry.
+    pub fn or_insert(self, default: T) -> &'a mut T {
+        self.inner
+            .or_insert(Box::new(default))
+            .downcast_mut::<T>()
+            .expect("downcast must succeed: type T was just inserted with Type::of::<T>() as key")
+    }
+
+    /// Ensures a value is in the entry by inserting the result of the default
+    /// function if empty, and returns a mutable reference to the value in the entry.
+    pub fn or_insert_with<F: FnOnce() -> T>(self, default: F) -> &'a mut T {
+        self.inner
+            .or_insert_with(|| Box::new(default()))
+            .downcast_mut::<T>()
+            .expect("downcast must succeed: type T was just inserted with Type::of::<T>() as key")
+    }
+
+    /// Provides in-place mutable access to an occupied entry before any
+    /// potential inserts into the set.
+    pub fn and_modify<F: FnOnce(&mut T)>(self, f: F) -> Self {
+        SetEntry {
+            inner: self.inner.and_modify(|boxed| {
+                if let Some(value) = boxed.downcast_mut::<T>() {
+                    f(value);
+                }
+            }),
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<'a, T: 'static + Default> SetEntry<'a, T> {
+    /// Ensures a value is in the entry by inserting the default value if empty,
+    /// and returns a mutable reference to the value in the entry.
+    pub fn or_default(self) -> &'a mut T {
+        self.or_insert_with(T::default)
     }
 }
 
