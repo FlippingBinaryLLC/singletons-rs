@@ -168,6 +168,28 @@ impl SingletonSet {
         self.0.keys().find(|t| t.as_str() == type_name)
     }
 
+    /// Removes and returns the value of the specified type from the set,
+    /// if it was present.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use singletons::SingletonSet;
+    ///
+    /// let mut set = SingletonSet::new();
+    /// set.insert(42u32);
+    /// assert_eq!(set.remove::<u32>(), Some(42));
+    /// assert_eq!(set.remove::<u32>(), None);
+    /// ```
+    pub fn remove<T>(&mut self) -> Option<T>
+    where
+        T: 'static,
+    {
+        self.0
+            .shift_remove(&Type::of::<T>())
+            .and_then(|boxed| boxed.downcast().ok().map(|boxed| *boxed))
+    }
+
     /// Calls a closure with some value of the corresponding type's
     /// slot, returning the closure's return value.
     ///
