@@ -1,19 +1,19 @@
 [package]
 name = "singletons"
 version = "0.1.0"
-categories = ["data-structures"]
-description = "Type-keyed data structures: SingletonSet stores one instance per type, SingletonMap<V> maps types to values"
-keywords = ["singleton", "data", "structure", "set", "map"]
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/FlippingBinaryLLC/singletons-rs"
-rust-version = "1.57.0"
 edition = "2021"
-exclude = [".gitignore", ".github", ".markdownlint.jsonc"]
-
-[features]
-default = ["set", "map"]
-set = []
-map = []
+rust-version = "1.57.0"
+description = "Type-keyed data structures: SingletonSet stores one instance per type, SingletonMap<V> maps types to values"
+repository = "https://github.com/FlippingBinaryLLC/singletons-rs"
+license = "MIT OR Apache-2.0"
+keywords = ["data", "map", "set", "singleton", "structure"]
+categories = ["data-structures"]
+exclude = [".github", ".gitignore", ".markdownlint.jsonc"]
 
 [dependencies]
 indexmap = "2.7"
+
+[features]
+default = ["map", "set"]
+map = []
+set = []
