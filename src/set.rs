@@ -3,34 +3,108 @@ use std::any::Any;
 use indexmap::IndexMap;
 pub use indexmap::TryReserveError;
 
-use crate::Type;
+use crate::{
+    casting::{Downcast, IntoBox},
+    Type,
+};
 
-/// A hash map that uses the value's type as its key.
+/// A hash set that uses the value's type as its key.
 ///
-/// This data structure can be used to create a locally-scoped Singleton out
-/// of any data type it holds. It ensures there is only one instance of any
-/// type, similar to a Singleton, without requiring a global scope.
+/// This data structure can be used to create a set of Singletons out of any data
+/// type it holds. It ensures there is only one instance of any type, similar
+/// to a classic Singleton, without requiring a global scope.
 #[derive(Debug, Default)]
-pub struct SingletonSet(IndexMap<Type, Box<dyn Any>>);
+pub struct SingletonSet<B: ?Sized + Downcast + 'static = dyn Any>(IndexMap<Type, Box<B>>);
+
+/// A [`SingletonSet`] that can only hold `Send` types, even if they aren't `Sync`.
+///
+/// This variant is `Send` but not `Sync`.
+pub type UnsyncSingletonSet = SingletonSet<dyn Any + Send>;
+
+/// A [`SingletonSet`] that can only hold `Send + Sync` types.
+///
+/// This variant is both `Send` and `Sync`.
+pub type SharedSingletonSet = SingletonSet<dyn Any + Send + Sync>;
+
+impl Default for SingletonSet {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+
+impl Default for UnsyncSingletonSet {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+
+impl Default for SharedSingletonSet {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
 
 impl SingletonSet {
     /// Creates an empty `SingletonSet`.
+    #[inline]
+    #[must_use]
+    #[deprecated = "use 'new_local()', 'new_unsync', or 'new_shared()' instead."]
+    pub fn new() -> Self {
+        Default::default()
+    }
+    /// Creates an empty `SingletonSet`.
     ///
-    /// The set is initially created with a capacity of 0, so it will not
-    /// allocate until an element is inserted.
+    /// If you need `SingletonSet` to be `Send` or `Sync`, use either [`SingletonSet::new_send()`]
+    /// or [`SingletonSet::new_sync()`].
     ///
     /// # Example
     ///
     /// ```
     /// use singletons::SingletonSet;
-    /// let mut set = SingletonSet::new();
+    /// let mut set = SingletonSet::new_any();
     /// ```
     #[inline]
     #[must_use]
-    pub fn new() -> Self {
-        SingletonSet(IndexMap::new())
+    pub fn new_local() -> Self {
+        Default::default()
     }
+}
 
+impl UnsyncSingletonSet {
+    /// Creates an empty `SingletonSet` that implements `Send`.
+    ///
+    /// If you need `SingletonSet` to be `Sync` as well, use [`SingletonSet::new_sync()`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use singletons::SingletonSet;
+    /// let mut set: SingletonSet = SingletonSet::new();
+    /// ```
+    #[inline]
+    #[must_use]
+    pub fn new_unsync() -> Self {
+        Default::default()
+    }
+}
+
+impl SharedSingletonSet {
+    /// Creates an empty `SingletonSet` that that implements `Send` and `Sync`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use singletons::SingletonSet;
+    /// let mut set: SingletonSet = SingletonSet::new();
+    /// ```
+    #[inline]
+    #[must_use]
+    pub fn new_shared() -> Self {
+        Default::default()
+    }
+}
+
+impl<B: ?Sized + Downcast + 'static> SingletonSet<B> {
     /// Creates an empty `SingletonSet` with at least the specified capacity.
     ///
     /// The set will be able to hold at least `capacity` elements without
@@ -104,17 +178,17 @@ impl SingletonSet {
     /// Inserts a value into the inferred type's slot.
     pub fn insert<T>(&mut self, value: T) -> Option<T>
     where
-        T: 'static,
+        T: IntoBox<B>,
     {
         self.0
-            .insert(Type::of::<T>(), Box::new(value))
-            .and_then(|boxed| boxed.downcast().ok().map(|boxed| *boxed))
+            .insert(Type::of::<T>(), value.into_box())
+            .and_then(|boxed| B::downcast_box(boxed).ok().map(|boxed| *boxed))
     }
 
     /// Inserts the default value of a type in the set.
     pub fn insert_default<T>(&mut self) -> Option<T>
     where
-        T: 'static + Default,
+        T: IntoBox<B> + Default,
     {
         self.insert(T::default())
     }
@@ -122,7 +196,7 @@ impl SingletonSet {
     /// Inserts a value into the inferred type's slot.
     pub fn insert_with<T>(&mut self, f: impl FnOnce() -> T) -> Option<T>
     where
-        T: 'static,
+        T: IntoBox<B>,
     {
         self.insert(f())
     }
@@ -138,12 +212,10 @@ impl SingletonSet {
 
     /// Returns true if the type of the provided value is represented in the
     /// set.
-    pub fn contains_type_of<T>(&self, value: &T) -> bool
+    pub fn contains_type_of<T>(&self, _value: &T) -> bool
     where
         T: 'static,
     {
-        // Parameter only used for type inference; we check type via Type::of::<T>()
-        let _ = value;
         self.0.contains_key(&Type::of::<T>())
     }
 
@@ -176,7 +248,7 @@ impl SingletonSet {
     /// ```
     /// use singletons::SingletonSet;
     ///
-    /// let mut set = SingletonSet::new();
+    /// let mut set: SingletonSet = SingletonSet::new();
     /// set.insert(42u32);
     /// assert_eq!(set.remove::<u32>(), Some(42));
     /// assert_eq!(set.remove::<u32>(), None);
@@ -187,7 +259,7 @@ impl SingletonSet {
     {
         self.0
             .shift_remove(&Type::of::<T>())
-            .and_then(|boxed| boxed.downcast().ok().map(|boxed| *boxed))
+            .and_then(|boxed| B::downcast_box(boxed).ok().map(|boxed| *boxed))
     }
 
     /// Gets the given type's corresponding entry in the set for in-place manipulation.
@@ -197,7 +269,7 @@ impl SingletonSet {
     /// ```
     /// use singletons::SingletonSet;
     ///
-    /// let mut set = SingletonSet::new();
+    /// let mut set: SingletonSet = SingletonSet::new();
     /// set.entry::<String>().or_insert_with(|| "hello".to_string());
     /// assert_eq!(set.get::<String>(), &"hello".to_string());
     ///
@@ -205,7 +277,7 @@ impl SingletonSet {
     ///     .and_modify(|s| s.push_str(" world"));
     /// assert_eq!(set.get::<String>(), &"hello world".to_string());
     /// ```
-    pub fn entry<T: 'static>(&mut self) -> SetEntry<'_, T> {
+    pub fn entry<T: IntoBox<B>>(&mut self) -> SetEntry<'_, B, T> {
         SetEntry {
             inner: self.0.entry(Type::of::<T>()),
             _marker: std::marker::PhantomData,
@@ -238,9 +310,9 @@ impl SingletonSet {
     #[track_caller]
     pub fn with_ref<T, R>(&self, f: impl FnOnce(&T) -> R) -> R
     where
-        T: 'static,
+        T: IntoBox<B>,
     {
-        f(self.as_ref())
+        f(self.get())
     }
 
     /// Inserts `default` if its type is not already represented, then calls
@@ -249,7 +321,7 @@ impl SingletonSet {
     /// This method also returns the closure's return value.
     pub fn with_ref_or<T, R>(&mut self, default: T, f: impl FnOnce(&T) -> R) -> R
     where
-        T: 'static,
+        T: IntoBox<B>,
     {
         f(self.as_ref_or_insert::<T>(default))
     }
@@ -260,7 +332,7 @@ impl SingletonSet {
     /// This method also returns the closure's return value.
     pub fn with_ref_or_default<T, R>(&mut self, f: impl FnOnce(&T) -> R) -> R
     where
-        T: 'static + Default,
+        T: IntoBox<B> + Default,
     {
         f(self.as_ref_or_insert::<T>(T::default()))
     }
@@ -274,7 +346,7 @@ impl SingletonSet {
         f: impl FnOnce(&T) -> R,
     ) -> R
     where
-        T: 'static,
+        T: IntoBox<B>,
     {
         f(self.as_ref_or_insert_with(default))
     }
@@ -294,9 +366,9 @@ impl SingletonSet {
     /// slot, if it exists, returning its return value.
     pub fn with_mut<T, R>(&mut self, f: impl FnOnce(&mut T) -> R) -> R
     where
-        T: 'static + Default,
+        T: IntoBox<B> + Default,
     {
-        f(self.as_mut())
+        f(self.get_mut())
     }
 
     /// Inserts `default` if its type is not already represented, then calls
@@ -305,7 +377,7 @@ impl SingletonSet {
     /// This method returns the closure's return value.
     pub fn with_mut_or<T, R>(&mut self, default: T, f: impl FnOnce(&mut T) -> R) -> R
     where
-        T: 'static,
+        T: IntoBox<B>,
     {
         f(self.as_mut_or_insert::<T>(default))
     }
@@ -319,17 +391,26 @@ impl SingletonSet {
         f: impl FnOnce(&mut T) -> R,
     ) -> R
     where
-        T: 'static,
+        T: IntoBox<B>,
     {
         f(self.as_mut_or_insert_with(default))
     }
 
-    /// This is an alias for [`Self::as_ref()`]
+    /// Returns an immutable reference to the value of the specified type.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if there is no existing value for the given type.
+    /// If this is not acceptable, use [`.try_get()`] instead.
+    ///
+    /// [`.try_get()`]: Self::try_get()
+    #[track_caller]
     pub fn get<T>(&self) -> &T
     where
-        T: 'static,
+        T: IntoBox<B>,
     {
-        self.as_ref()
+        self.try_as_ref()
+            .expect(".try_as_ref() or .as_mut() should be used if the slot might be empty")
     }
 
     /// Returns an immutable reference to the value of the specified type,
@@ -356,12 +437,17 @@ impl SingletonSet {
         self.try_as_ref()
     }
 
-    /// This is an alias for [`Self::as_mut()`]
+    /// Returns a mutable reference to the value of the specified type,
+    /// inserting the default value if not present.
+    ///
+    /// This method inserts an element into the set if the type is not
+    /// already represented, so the type must implement [`Default`].
+    #[track_caller]
     pub fn get_mut<T>(&mut self) -> &mut T
     where
-        T: 'static + Default,
+        T: IntoBox<B> + Default,
     {
-        self.as_mut()
+        self.as_mut_or_insert_with(T::default)
     }
 
     /// Returns a mutable reference to the value of the specified type,
@@ -395,11 +481,11 @@ impl SingletonSet {
     #[doc(alias = "get_or_insert()")]
     pub fn as_ref_or_insert<T>(&mut self, value: T) -> &T
     where
-        T: 'static,
+        T: IntoBox<B>,
     {
         self.0
             .entry(Type::of::<T>())
-            .or_insert(Box::new(value))
+            .or_insert_with(|| value.into_box())
             .downcast_ref::<T>()
             .expect("downcast must succeed: type T was just inserted with Type::of::<T>() as key")
     }
@@ -407,7 +493,7 @@ impl SingletonSet {
     /// This is an alias for [`Self::as_ref_or_insert()`]
     pub fn get_or_insert<T>(&mut self, value: T) -> &T
     where
-        T: 'static,
+        T: IntoBox<B>,
     {
         self.as_ref_or_insert(value)
     }
@@ -423,11 +509,11 @@ impl SingletonSet {
     #[doc(alias = "get_or_insert_mut()")]
     pub fn as_mut_or_insert<T>(&mut self, value: T) -> &mut T
     where
-        T: 'static,
+        T: IntoBox<B>,
     {
         self.0
             .entry(Type::of::<T>())
-            .or_insert(Box::new(value))
+            .or_insert_with(|| value.into_box())
             .downcast_mut::<T>()
             .expect("downcast must succeed: type T was just inserted with Type::of::<T>() as key")
     }
@@ -437,7 +523,7 @@ impl SingletonSet {
     /// [`.as_mut_or_insert(value)`]: Self::as_mut_or_insert()
     pub fn get_or_insert_mut<T>(&mut self, value: T) -> &mut T
     where
-        T: 'static,
+        T: IntoBox<B>,
     {
         self.as_mut_or_insert(value)
     }
@@ -448,11 +534,11 @@ impl SingletonSet {
     #[doc(alias = "get_or_insert_mut()")]
     pub fn as_ref_or_insert_with<T>(&mut self, default: impl FnOnce() -> T) -> &T
     where
-        T: 'static,
+        T: IntoBox<B>,
     {
         self.0
             .entry(Type::of::<T>())
-            .or_insert_with(|| Box::new(default()))
+            .or_insert_with(|| default().into_box())
             .downcast_ref::<T>()
             .expect("downcast must succeed: type T was just inserted with Type::of::<T>() as key")
     }
@@ -460,7 +546,7 @@ impl SingletonSet {
     /// This is an alias for [`Self::as_ref_or_insert_with()`]
     pub fn get_or_insert_with<T>(&mut self, default: impl FnOnce() -> T) -> &T
     where
-        T: 'static,
+        T: IntoBox<B>,
     {
         self.as_ref_or_insert_with(default)
     }
@@ -471,11 +557,11 @@ impl SingletonSet {
     #[doc(alias = "get_or_insert_with_mut()")]
     pub fn as_mut_or_insert_with<T>(&mut self, default: impl FnOnce() -> T) -> &mut T
     where
-        T: 'static,
+        T: IntoBox<B>,
     {
         self.0
             .entry(Type::of::<T>())
-            .or_insert_with(|| Box::new(default()))
+            .or_insert_with(|| default().into_box())
             .downcast_mut::<T>()
             .expect("downcast must succeed: type T was just inserted with Type::of::<T>() as key")
     }
@@ -485,7 +571,7 @@ impl SingletonSet {
     /// [`.as_mut_or_insert_with(default)`]: Self::as_mut_or_insert_with()
     pub fn get_or_insert_with_mut<T>(&mut self, default: impl FnOnce() -> T) -> &mut T
     where
-        T: 'static,
+        T: IntoBox<B>,
     {
         self.as_mut_or_insert_with(default)
     }
@@ -495,14 +581,14 @@ impl SingletonSet {
     /// The insertion order is maintained by the internal `IndexMap` used to
     /// store the elements.
     #[must_use]
-    pub fn types(&self) -> Types<'_> {
+    pub fn types(&self) -> Types<'_, B> {
         Types(self.0.keys())
     }
 }
 
-impl<T> AsRef<T> for SingletonSet
+impl<T, B: ?Sized + Downcast + 'static> AsRef<T> for SingletonSet<B>
 where
-    T: 'static,
+    T: IntoBox<B>,
 {
     /// Returns an immutable reference to the value of the inferred type.
     ///
@@ -518,7 +604,6 @@ where
     ///
     /// [`.try_with_ref()`]: SingletonSet::try_with_ref()
     /// [`.try_as_ref()`]: SingletonSet::try_as_ref()
-    #[doc(alias = "get_mut()")]
     #[track_caller]
     fn as_ref(&self) -> &T {
         self.try_as_ref()
@@ -526,26 +611,25 @@ where
     }
 }
 
-impl<T> AsMut<T> for SingletonSet
+impl<T, B: ?Sized + Downcast + 'static> AsMut<T> for SingletonSet<B>
 where
-    T: 'static + Default,
+    T: IntoBox<B> + Default,
 {
     /// Returns a mutable reference to the value of the specified type.
     ///
     /// This method inserts an element into the set if the type is not
     /// already represented, so the type must implement [`Default`].
-    #[doc(alias = "get_mut()")]
     #[track_caller]
     fn as_mut(&mut self) -> &mut T {
-        self.as_mut_or_insert_with(|| T::default())
+        self.as_mut_or_insert_with(T::default)
     }
 }
 
 /// An iterator of the [`Type`]s in a [`SingletonSet`].
 #[derive(Clone)]
-pub struct Types<'a>(indexmap::map::Keys<'a, Type, Box<dyn Any>>);
+pub struct Types<'a, B: ?Sized + 'static>(indexmap::map::Keys<'a, Type, Box<B>>);
 
-impl<'a> Iterator for Types<'a> {
+impl<'a, B: ?Sized + 'static> Iterator for Types<'a, B> {
     type Item = &'a Type;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -557,24 +641,24 @@ impl<'a> Iterator for Types<'a> {
     }
 }
 
-impl<'a> ExactSizeIterator for Types<'a> {
+impl<B: ?Sized + 'static> ExactSizeIterator for Types<'_, B> {
     fn len(&self) -> usize {
         self.0.len()
     }
 }
 
-impl<'a> DoubleEndedIterator for Types<'a> {
+impl<B: ?Sized + 'static> DoubleEndedIterator for Types<'_, B> {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.0.next_back()
     }
 }
 
-impl<'a> std::iter::FusedIterator for Types<'a> {}
+impl<B: ?Sized + 'static> std::iter::FusedIterator for Types<'_, B> {}
 
 /// An owning iterator over the [`Type`]s in a [`SingletonSet`].
-pub struct IntoTypes(indexmap::map::IntoKeys<Type, Box<dyn Any>>);
+pub struct IntoTypes<B: ?Sized + 'static>(indexmap::map::IntoKeys<Type, Box<B>>);
 
-impl Iterator for IntoTypes {
+impl<B: ?Sized + 'static> Iterator for IntoTypes<B> {
     type Item = Type;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -586,32 +670,32 @@ impl Iterator for IntoTypes {
     }
 }
 
-impl ExactSizeIterator for IntoTypes {
+impl<B: ?Sized + 'static> ExactSizeIterator for IntoTypes<B> {
     fn len(&self) -> usize {
         self.0.len()
     }
 }
 
-impl DoubleEndedIterator for IntoTypes {
+impl<B: ?Sized + 'static> DoubleEndedIterator for IntoTypes<B> {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.0.next_back()
     }
 }
 
-impl std::iter::FusedIterator for IntoTypes {}
+impl<B: ?Sized + 'static> std::iter::FusedIterator for IntoTypes<B> {}
 
-impl IntoIterator for SingletonSet {
+impl<B: ?Sized + Downcast + 'static> IntoIterator for SingletonSet<B> {
     type Item = Type;
-    type IntoIter = IntoTypes;
+    type IntoIter = IntoTypes<B>;
 
     fn into_iter(self) -> Self::IntoIter {
         IntoTypes(self.0.into_keys())
     }
 }
 
-impl<'a> IntoIterator for &'a SingletonSet {
+impl<'a, B: ?Sized + Downcast + 'static> IntoIterator for &'a SingletonSet<B> {
     type Item = &'a Type;
-    type IntoIter = Types<'a>;
+    type IntoIter = Types<'a, B>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.types()
@@ -619,17 +703,17 @@ impl<'a> IntoIterator for &'a SingletonSet {
 }
 
 /// A view into a single entry in a [`SingletonSet`], which may either be vacant or occupied.
-pub struct SetEntry<'a, T> {
-    inner: indexmap::map::Entry<'a, Type, Box<dyn Any>>,
+pub struct SetEntry<'a, B: ?Sized + 'static, T> {
+    inner: indexmap::map::Entry<'a, Type, Box<B>>,
     _marker: std::marker::PhantomData<T>,
 }
 
-impl<'a, T: 'static> SetEntry<'a, T> {
+impl<'a, B: ?Sized + Downcast + 'static, T: IntoBox<B>> SetEntry<'a, B, T> {
     /// Ensures a value is in the entry by inserting the default if empty,
     /// and returns a mutable reference to the value in the entry.
     pub fn or_insert(self, default: T) -> &'a mut T {
         self.inner
-            .or_insert(Box::new(default))
+            .or_insert_with(|| default.into_box())
             .downcast_mut::<T>()
             .expect("downcast must succeed: type T was just inserted with Type::of::<T>() as key")
     }
@@ -638,7 +722,7 @@ impl<'a, T: 'static> SetEntry<'a, T> {
     /// function if empty, and returns a mutable reference to the value in the entry.
     pub fn or_insert_with<F: FnOnce() -> T>(self, default: F) -> &'a mut T {
         self.inner
-            .or_insert_with(|| Box::new(default()))
+            .or_insert_with(|| default().into_box())
             .downcast_mut::<T>()
             .expect("downcast must succeed: type T was just inserted with Type::of::<T>() as key")
     }
@@ -657,7 +741,7 @@ impl<'a, T: 'static> SetEntry<'a, T> {
     }
 }
 
-impl<'a, T: 'static + Default> SetEntry<'a, T> {
+impl<'a, B: ?Sized + Downcast + 'static, T: IntoBox<B> + Default> SetEntry<'a, B, T> {
     /// Ensures a value is in the entry by inserting the default value if empty,
     /// and returns a mutable reference to the value in the entry.
     pub fn or_default(self) -> &'a mut T {
@@ -671,7 +755,7 @@ mod tests {
 
     #[test]
     fn test_singletonset_retains_last_element_of_type() {
-        let mut set = SingletonSet::new();
+        let mut set: SingletonSet = SingletonSet::new_local();
 
         *set.as_mut() = 1u8;
         *set.as_mut() = 2u8;
@@ -699,7 +783,7 @@ mod tests {
 
     #[test]
     fn test_singletonset_mutations() {
-        let mut set = SingletonSet::new();
+        let mut set: SingletonSet = SingletonSet::new_local();
 
         *set.get_mut() = "foo".to_string();
         (*set.get_mut::<String>()).push_str("bar");
@@ -711,8 +795,6 @@ mod tests {
         set.with_mut::<u32, _>(|val| *val *= 3);
         set.with_mut(|val: &mut String| *val += "baz");
 
-        // The "Hello, World!" string should be gone, replaced by the longer
-        // one, which can be retrieved by accessing the `&str` element.
         assert_ne!(set.get::<String>(), &"foo".to_string());
         assert_ne!(set.get::<String>(), &"foobar".to_string());
         assert_eq!(set.get::<String>(), &"foobarbaz".to_string());
@@ -722,7 +804,7 @@ mod tests {
 
     #[test]
     fn singletonset_works_without_default() {
-        let mut set = SingletonSet::new();
+        let mut set: SingletonSet = SingletonSet::new_local();
 
         #[derive(Debug, PartialEq)]
         struct Foo(&'static str);
@@ -736,7 +818,7 @@ mod tests {
 
     #[test]
     fn singletonset_works_with_custom_defaults() {
-        let mut set = SingletonSet::new();
+        let mut set: SingletonSet = SingletonSet::new_local();
 
         #[derive(Debug, PartialEq)]
         struct Foo(&'static str);
@@ -758,7 +840,7 @@ mod tests {
 
     #[test]
     fn singletonset_can_be_iterated() {
-        let mut set = SingletonSet::new();
+        let mut set: SingletonSet = SingletonSet::new_local();
 
         set.get_mut::<u8>();
         set.get_mut::<u16>();
@@ -770,5 +852,13 @@ mod tests {
         assert!(iter.next().is_some());
         assert!(iter.next().is_some());
         assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn singletonset_can_be_send_and_sync() {
+        fn assert_send<T: Send>(_: T) {}
+        fn assert_sync<T: Sync>(_: T) {}
+        assert_send(SingletonSet::new_unsync());
+        assert_sync(SingletonSet::new_shared());
     }
 }

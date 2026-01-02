@@ -7,11 +7,13 @@
 //! This example covers the fundamental operations: inserting values,
 //! checking membership, and retrieving values.
 
+use std::thread::spawn;
+
 use singletons::SingletonSet;
 
 fn main() {
     // Create an empty SingletonSet
-    let mut set = SingletonSet::new();
+    let mut set = SingletonSet::new_local();
 
     assert!(set.is_empty());
     assert_eq!(set.len(), 0);
@@ -52,4 +54,26 @@ fn main() {
     for type_key in set.types() {
         println!("  - {}", type_key.as_name());
     }
+
+    // If you need to send it between threads, create it with `new_shared()` or
+    // `new_unsync()`
+    let mut channel_set = SingletonSet::new_shared();
+    let (tx_u64, rx_u64) = std::sync::mpsc::channel::<u64>();
+    let (tx_str, rx_str) = std::sync::mpsc::channel::<&str>();
+    channel_set.insert(tx_u64);
+    channel_set.insert(tx_str);
+    spawn(move || {
+        use std::sync::mpsc::Sender;
+
+        if let Some(tx) = channel_set.remove::<Sender<u64>>() {
+            tx.send(42).expect("send does not fail");
+        }
+        if let Some(tx) = channel_set.remove::<Sender<&str>>() {
+            tx.send("Hello, World!").expect("send does not fail");
+        }
+    });
+
+    println!("\nThread sends values:");
+    println!("  u64: {:?}", rx_u64.recv());
+    println!("  &str: {:?}", rx_str.recv());
 }
